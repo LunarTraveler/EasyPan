@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.xcu.mapper.FolderMapper">
+
+    <select id="selectFolderInfoList" resultType="com.xcu.entity.vo.GetFolderInfo">
+        select
+            f.name as fileName,
+            f.folder_id as fileId
+        from
+            easypan.tb_folders f
+        where
+            f.folder_id in
+            <foreach collection="folderIds" item="item" separator="," open="(" close=")">
+                #{item}
+            </foreach>
+        order by f.folder_id
+    </select>
+
+    <select id="recursiveQuery" resultType="java.lang.Long">
+        WITH RECURSIVE directory_tree AS (
+            -- 基础成员：选择根目录及其直接关联的文件
+            SELECT
+                fd.folder_id,
+                uf.file_id
+            FROM
+                tb_folders fd
+                    LEFT JOIN
+                tb_user_file uf ON fd.folder_id = uf.file_pid
+            WHERE
+                fd.folder_id = #{folderId}
+            UNION ALL
+            -- 递归成员：选择子目录及其直接关联的文件
+            SELECT
+                f.folder_id,
+                uf.file_id
+            FROM
+                tb_folders f
+                    INNER JOIN
+                directory_tree d ON f.parent_id = d.folder_id
+                    LEFT JOIN
+                tb_user_file uf ON f.folder_id = uf.file_pid
+        )
+        SELECT DISTINCT
+            dt.folder_id AS id
+        FROM
+            directory_tree AS dt
+        UNION ALL
+        SELECT
+            dt.file_id AS id
+        FROM
+            directory_tree AS dt
+        WHERE
+            dt.file_id IS NOT NULL
+    </select>
+
+
+</mapper>

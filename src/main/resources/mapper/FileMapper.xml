@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.xcu.mapper.FileMapper">
+
+    <select id="selectUserSpace" resultType="java.lang.Integer">
+        select ifnull(sum(easypan.tb_file.file_size), 0)
+        from easypan.file_info, easypan.tb_user
+        where easypan.tb_user.user_id = #{id}
+    </select>
+
+    <update id="updateRefCount">
+        update easypan.tb_file
+        set easypan.tb_file.ref_count = easypan.tb_file.ref_count + 1
+        where easypan.tb_file.file_md5 = #{fileMd5}
+    </update>
+
+    <select id="selectFileInfoPage" resultType="com.xcu.entity.vo.LoadDataListVO">
+        select
+            f.file_id as fileId,
+            uf.file_pid as filePid,
+            f.file_size as fileSize,
+            uf.file_name as fileName,
+            f.file_cover as fileCover,
+            uf.create_time as createTime,
+            uf.update_time as lastUpdateTime,
+            0 as folderType,
+            f.file_category as fileCategory,
+            f.file_type as fileType,
+            uf.status as status
+        from
+            easypan.tb_file f
+        left join
+            easypan.tb_user_file uf
+        on
+            f.file_id = uf.file_id
+        <where>
+            <if test="category != null">
+                AND f.file_category = #{category}
+            </if>
+            <if test="filePid != null">
+                AND uf.file_pid = #{filePid}
+            </if>
+            <if test="fileName != null">
+                AND uf.file_name LIKE CONCAT('%', #{fileName}, '%')
+            </if>
+            AND f.status != 1
+            AND uf.status = 2
+        </where>
+
+        UNION ALL
+
+        select
+            f.folder_id as fileId,
+            f.parent_id as filePid,
+            null as fileSize,
+            f.name as fileName,
+            null as fileCover,
+            f.create_time as createTime,
+            f.update_time as lastUpdateTime,
+            1 as folderType,
+            null as fileCategory,
+            null as fileType,
+            2 as status
+        from
+            easypan.tb_folders f
+        <where>
+            <if test="filePid != null">
+                AND f.parent_id = #{filePid}
+            </if>
+            <if test="fileName != null">
+                AND f.name LIKE CONCAT('%', #{fileName}, '%')
+            </if>
+        </where>
+
+        order by
+            createTime desc,
+            folderType asc
+    </select>
+
+</mapper>

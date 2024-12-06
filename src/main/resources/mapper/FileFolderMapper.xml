@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.xcu.mapper.FileFolderMapper">
+
+    <select id="selectFileInfoPage" resultType="com.xcu.entity.vo.LoadDataListVO">
+        select
+            tff.file_folder_id as fileId,
+            tff.parent_id as filePid,
+            f.file_size as fileSize,
+            tff.name as fileName,
+            f.file_cover as fileCover,
+            tff.create_time as createTime,
+            tff.update_time as lastUpdateTime,
+            tff.is_directory as folderType,
+            f.file_category as fileCategory,
+            f.file_type as fileType,
+            tff.status as status
+        from
+            easypan.tb_file_folder tff
+        left join
+            easypan.tb_file f
+        on
+            tff.file_folder_id = f.file_id
+        <where>
+            <if test="category != null">
+                AND f.file_category = #{category}
+            </if>
+            <if test="filePid != null">
+                AND tff.parent_id = #{filePid}
+            </if>
+            <if test="fileName != null">
+                AND tff.name LIKE CONCAT('%', #{fileName}, '%')
+            </if>
+        </where>
+
+    </select>
+
+
+</mapper>

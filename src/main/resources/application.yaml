@@ -1,0 +1,50 @@
+server:
+  port: 8080
+# 连接池配置
+spring:
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      url: jdbc:mysql:///easypan
+      username: root
+      password: liuning19881117
+      driver-class-name: com.mysql.cj.jdbc.Driver
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    password: 123456
+    lettuce:
+      pool:
+        max-active: 10
+        max-idle: 10
+        min-idle: 1
+        time-between-eviction-runs: 10s
+  jackson:
+    default-property-inclusion: non_null # JSON处理时忽略非空字段
+  mail:
+    username: LunarTravel@163.com
+    password: SAswMwQerRNxUWve # 授权码
+    host: smtp.163.com
+  servlet:
+    multipart:
+      max-file-size: 20MB   # 单个文件的最大上传大小
+      max-request-size: 1024MB # 总上传数据的最大大小
+
+mybatis-plus:
+  type-aliases-package: com.xcu.entity # 别名扫描包
+  global-config:
+    db-config:
+      id-type: auto # 确保为自动生成
+
+logging:
+  level:
+    com.xcu: debug
+
+easypan:
+  admin:
+    emails: lunartravel@qq.com
+  alioss:
+    access-key-id: LTAI5tKU6g7PK6oyHWp1HaG2
+    access-key-secret: 5p45kC5e2XPRFBXIwVLmuAkDj2IzZx
+    bucket-name: lunartravel
+    endpoint: oss-cn-beijing.aliyuncs.com
