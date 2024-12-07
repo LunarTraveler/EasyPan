@@ -3,12 +3,14 @@ package com.xcu.entity.pojo;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 @Data
 @TableName(value = "tb_file_folder")
+@Builder
 public class FileFolder {
 
     @TableId(value = "id", type = IdType.AUTO)
@@ -20,7 +22,7 @@ public class FileFolder {
 
     private String name;
 
-    private Boolean isDirectory; // 0文件  1目录
+    private Integer isDirectory; // 0文件  1目录
 
     private Long parentId;
 

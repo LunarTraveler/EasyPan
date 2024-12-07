@@ -17,9 +17,9 @@ import com.xcu.entity.dto.LoadDataListDTO;
 import com.xcu.entity.dto.NewFolderDTO;
 import com.xcu.entity.dto.UploadFileDTO;
 import com.xcu.entity.enums.*;
+import com.xcu.entity.pojo.FileFolder;
 import com.xcu.entity.pojo.FileInfo;
-import com.xcu.entity.pojo.Folder;
-import com.xcu.entity.pojo.UserWithFile;
+import com.xcu.entity.vo.GetFolderInfo;
 import com.xcu.entity.vo.LoadDataListVO;
 import com.xcu.entity.vo.UploadFileVO;
 import com.xcu.exception.BaseException;
@@ -36,7 +36,6 @@ import org.springframework.aop.framework.AopContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,10 +49,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -61,10 +58,6 @@ import java.util.stream.Collectors;
 public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implements FileService {
 
     private final FileMapper fileMapper;
-
-    private final UserFileMapper userFileMapper;
-
-    private final FolderMapper folderMapper;
 
     private final FileFolderMapper fileFolderMapper;
 
@@ -76,9 +69,10 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
 
     @Override
     public Result<PageResult<LoadDataListVO>> loadDataList(LoadDataListDTO loadDataListDTO) {
-        String category = loadDataListDTO.getCategory(); // all
-        if ("all".equals(category)) {
-            category = null; // 相当与这个条件就不会加入到其中
+        String categoryParam = loadDataListDTO.getCategory(); // all
+        Integer category = null; // 如果传来的是all 那么的话就直接是null了
+        if (!"all".equals(categoryParam)) {
+            category = FileCategoryEnums.getByCode(categoryParam).getCategory();
         }
         Long filePid = loadDataListDTO.getFilePid(); // 默认是0根目录
         String fileName = loadDataListDTO.getFileName(); // 可能是null
@@ -89,11 +83,11 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         IPage<LoadDataListVO> page = new Page<>(
                 pageNo == null ? 1 : pageNo,
                 pageSize == null ? 15 : pageSize);
-        page = fileMapper.selectFileInfoPage(page, category, filePid, fileName);
+        page = fileFolderMapper.selectFileInfoPage(page, category, filePid, fileName);
 
         PageResult<LoadDataListVO> pageResult = new PageResult<>();
-        pageResult.setPageNo(pageNo);
-        pageResult.setPageSize(pageSize);
+        pageResult.setPageNo((int)page.getCurrent());
+        pageResult.setPageSize((int)page.getSize());
         pageResult.setTotalCount(page.getTotal());
         pageResult.setPageTotal(page.getPages());
         // 表示查出来的是文件列表 这里的封面图片路径要修改一下
@@ -110,7 +104,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     public Result uploadFile(UploadFileDTO uploadFileDTO) {
         // 获取前端传来的参数，后面使用会比较方便
         String fileIdStr = uploadFileDTO.getFileId(); // 这个可能会为空
-        Long fileId = redisIdIncrement.nextId("file");
+        Long fileId = redisIdIncrement.nextId(RedisConstant.FILE_OR_FOLDER_KEY);
         MultipartFile file = uploadFileDTO.getFile();
         String fileName = uploadFileDTO.getFileName();
         Long filePid = Long.valueOf(uploadFileDTO.getFilePid());
@@ -129,7 +123,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         stringRedisTemplate.opsForValue().increment(RedisConstant.TEMP_FILE_SIZE_KEY + userId, file.getSize());
         Long tempFileSize = Long.valueOf(stringRedisTemplate.opsForValue().get(RedisConstant.TEMP_FILE_SIZE_KEY + userId));
 
-        // 判断这个文件整个文件表中是否已经存在（秒传）
+        // 判断这个文件整个文件表中是否已经存在（秒传的逻辑）
         if (chunkIndex == 0) {
             FileInfo secFile = fileMapper.selectOne(new LambdaQueryWrapper<FileInfo>()
                     .eq(FileInfo::getFileMd5, fileMd5)
@@ -139,16 +133,15 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                     throw new BaseException(ResponseCodeEnum.CODE_904.getMsg());
                 }
                 // 实现了一份文件具有多个逻辑引用（注意删除的时候是要逻辑删除）
-                long id = redisIdIncrement.nextId("userFile");
-                UserWithFile userWithFile = UserWithFile.builder()
-                        .id(id)
+                FileFolder fileFolder = FileFolder.builder()
                         .userId(userId)
-                        .fileId(fileId)
-                        .fileName(fileName)
-                        .filePid(filePid)
+                        .fileFolderId(fileId)
+                        .name(fileName)
+                        .parentId(filePid)
+                        .isDirectory(FileFolderTypeEnums.FILE.getType())
                         .status(FileStatusEnums.USING.getStatus())
                         .build();
-                userFileMapper.insert(userWithFile);
+                fileFolderMapper.insert(fileFolder);
 
                 // 增加文件的引用次数(注意要加悲观锁的，防止多个人上传同一个文件导致的数据不一致问题)
                 fileMapper.updateRefCount(fileMd5);
@@ -211,16 +204,16 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                     .build();
             fileMapper.insert(fileInfo);
 
-            long id = redisIdIncrement.nextId("userFile");
-            UserWithFile userWithFile = UserWithFile.builder()
-                    .id(id)
+            // 实现了一份文件具有多个逻辑引用（注意删除的时候是要逻辑删除）
+            FileFolder fileFolder = FileFolder.builder()
                     .userId(userId)
-                    .fileId(fileId)
-                    .fileName(fileName)
-                    .filePid(filePid)
+                    .fileFolderId(fileId)
+                    .name(fileName)
+                    .parentId(filePid)
+                    .isDirectory(FileFolderTypeEnums.FILE.getType())
                     .status(FileStatusEnums.USING.getStatus())
                     .build();
-            userFileMapper.insert(userWithFile);
+            fileFolderMapper.insert(fileFolder);
 
             userServiceImpl.updateUsedSpace(userId, (int)(usedSpace + tempFileSize));
         } catch (Exception e) {
@@ -273,6 +266,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             FileUtil.del(Paths.get(tempFileFolder));
         }
 
+        // fileMapper.update(FileInfo.builder().build())
         // 如果是视频文件的话要把原视频生成封面和视频切割
         generateCover(targetPath, fileId);
     }
@@ -411,21 +405,14 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     }
 
     /**
-     * 这里用于区分文件和目录（这里就是分表之后的弊端了没办法）
-     * @param fileId
-     * @return
-     */
-    private Boolean isFile(Long fileId) {
-        return fileId > 1000000L;
-    }
-
-    /**
      * 这里可以同时修改文件和文件夹，两个共用一个接口
      */
     @Override
     public Result rename(Long fileId, String newName) {
-        // 这里没办法了，由于共用一个接口，只能这样做一个区分了
-        if (isFile(fileId)) {
+        FileFolder fileFolder = fileFolderMapper.selectOne(new LambdaQueryWrapper<FileFolder>()
+                .eq(FileFolder::getFileFolderId, fileId));
+
+        if (fileFolder.getIsDirectory() == FileFolderTypeEnums.FILE.getType()) {
             return reFileName(fileId, newName);
         } else {
             return reFolderName(fileId, newName);
@@ -434,19 +421,17 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
 
     private Result reFileName(Long fileId, String fileName) {
         Long userId = BaseContext.getUserId();
-        UserWithFile userWithFile = userFileMapper.selectOne(new LambdaQueryWrapper<UserWithFile>()
-                .eq(UserWithFile::getFileId, fileId)
-                .eq(UserWithFile::getUserId, userId));
-        if (userWithFile == null) {
+        FileFolder fileFolder = fileFolderMapper.selectOne(new LambdaQueryWrapper<FileFolder>()
+                .eq(FileFolder::getFileFolderId, fileId)
+                .eq(FileFolder::getUserId, userId));
+        if (fileFolder == null) {
             throw new BaseException("这个文件不存在");
         }
 
-        fileName = fileName + Constants.DOT + FileNameUtil.getSuffix(userWithFile.getFileName());
+        fileName = fileName + Constants.DOT + FileNameUtil.getSuffix(fileFolder.getName());
 
-        int updateRows = userFileMapper.update(UserWithFile.builder().fileName(fileName).build(),
-                new LambdaQueryWrapper<UserWithFile>()
-                        .eq(UserWithFile::getUserId, userId)
-                        .eq(UserWithFile::getFileId, fileId));
+        fileFolder.setName(fileName);
+        int updateRows = fileFolderMapper.updateById(fileFolder);
         if (updateRows == 0) {
             throw new BaseException("文件重命名失败");
         }
@@ -454,16 +439,14 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     }
 
     private Result reFolderName(Long folderId, String folderName) {
-        Folder folder = folderMapper.selectOne(new LambdaQueryWrapper<Folder>()
-                .eq(Folder::getFolderId, folderId));
-        if (folder == null) {
+        FileFolder fileFolder = fileFolderMapper.selectOne(new LambdaQueryWrapper<FileFolder>()
+                .eq(FileFolder::getFileFolderId, folderId));
+        if (fileFolder == null) {
             throw new BaseException("这个文件夹不存在");
         }
 
-        Folder folderQuery = new Folder();
-        folderQuery.setFolderId(folderId);
-        folderQuery.setName(folderName);
-        int updateRows = folderMapper.updateById(folderQuery);
+        fileFolder.setName(folderName);
+        int updateRows = fileFolderMapper.updateById(fileFolder);
         if (updateRows == 0) {
             throw new BaseException("文件目录重命名失败");
         }
@@ -480,78 +463,22 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     @Transactional(rollbackFor = Exception.class)
     @Override
     public Result delFile(String fileIds) {
-        // 把两个表的东西筛选出来吧，之后是可以实现批量操作的
-        String[] fileIdArray = fileIds.split(",");
+        String[] idArray = fileIds.split(",");
 
-        Map<Boolean, List<Long>> collect = Arrays.stream(fileIdArray)
-                .map(Long::valueOf)
-                .collect(Collectors.partitioningBy(id -> isFile(id)));
-
-        // 先要对目录进行操作可以获取到里面的文件id
-        List<Long> ids = deleteFolder(collect.get(false));
-
-        // 对于全部的文件进行逻辑删除
-        List<Long> fileIdList = collect.get(true);
-        fileIdList.addAll(ids);
-
-        // aop实现事务的嵌套关系(事务的传播行为)
-        FileService fileService = (FileService) AopContext.currentProxy();
-        fileService.deleteLogicFile(fileIdList);
+        // 递归查询加更新
+        fileFolderMapper.recursiveRecovery(idArray);
 
         return Result.success();
-    }
-
-    /**
-     * 对于文件来说直接赋值为逻辑删除就行
-     * @param fileIds
-     * @return
-     */
-    public void deleteLogicFile(List<Long> fileIds) {
-        Long userId = BaseContext.getUserId();
-        Integer status = FileDelFlagEnums.RECYCLE.getFlag();
-        LocalDateTime recoveryTime = LocalDateTime.now();
-
-        userFileMapper.updateBatchStatus(fileIds, userId, status, recoveryTime);
-    }
-
-    /**
-     * 对于目录来说要判断目录里是否有文件（递归查询） 没有的话直接删除就行了
-     * Propagation.REQUIRED -> 加入事务(同一个事务 默认的)
-     * Propagation.REQUIRES_NEW -> 独立新建事务(不同的事务)
-     * @param folderIds
-     * @return 返回的是文件的集合
-     */
-    @Transactional(propagation = Propagation.REQUIRED)
-    public List<Long> deleteFolder(List<Long> folderIds) {
-        List<Long> fileIdList = new ArrayList<>();
-        List<Long> folderIdList = new ArrayList<>();
-
-        // 对于当前这一层的全部目录都要做一个递归查询
-        for (Long folderId : folderIds) {
-            List<Long> ids = folderMapper.recursiveQuery(folderId);
-            for (Long id : ids) {
-                if (isFile(id)) {
-                    fileIdList.add(id);
-                } else {
-                    folderIdList.add(id);
-                }
-            }
-        }
-
-        // 目录直接删除就行了，不用设置逻辑删除
-        folderMapper.deleteBatchIds(folderIdList);
-
-        return fileIdList;
     }
 
     @Override
     public Result createDownloadUrl(Long fileId) {
         // 防止下载越权限
         Long userId = BaseContext.getUserId();
-        UserWithFile userWithFile = userFileMapper.selectOne(new LambdaQueryWrapper<UserWithFile>()
-                .eq(UserWithFile::getUserId, userId)
-                .eq(UserWithFile::getFileId, fileId));
-        if (userWithFile == null) {
+        FileFolder fileFolder = fileFolderMapper.selectOne(new LambdaQueryWrapper<FileFolder>()
+                .eq(FileFolder::getUserId, userId)
+                .eq(FileFolder::getFileFolderId, fileId));
+        if (fileFolder == null) {
             throw new BaseException("文件不存在，请检查下载文件");
         }
 
@@ -591,16 +518,90 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
 
     @Override
     public Result newFolder(NewFolderDTO newFolderDTO) {
-        return null;
+        String name = newFolderDTO.getFileName();
+        checkRepeatName(name, FileFolderTypeEnums.FOLDER.getType());
+
+        Long folderId = redisIdIncrement.nextId(RedisConstant.FILE_OR_FOLDER_KEY);
+        FileFolder folder = FileFolder.builder()
+                .fileFolderId(folderId)
+                .name(name)
+                .parentId(newFolderDTO.getFilePid())
+                .userId(BaseContext.getUserId())
+                .isDirectory(FileFolderTypeEnums.FOLDER.getType())
+                .status(FileStatusEnums.USING.getStatus())
+                .build();
+
+        fileFolderMapper.insert(folder);
+
+        return Result.success();
     }
 
+    /**
+     * 检查文件或是目录名称是否重复
+     * @param name
+     */
+    private void checkRepeatName(String name, int isDirectory) {
+        Long userId = BaseContext.getUserId();
+        FileFolder fileFolder = fileFolderMapper.selectOne(new LambdaQueryWrapper<FileFolder>()
+                .eq(FileFolder::getIsDirectory, isDirectory)
+                .eq(FileFolder::getUserId, userId)
+                .eq(FileFolder::getName, name));
+        if (fileFolder != null) {
+            if (isDirectory == FileFolderTypeEnums.FOLDER.getType()) {
+                throw new BaseException("此目录名已经存在，请在起一个新的名称");
+            } else {
+                throw new BaseException("此文件名已经存在，请在起一个新的名称");
+            }
+        }
+
+    }
+
+    // TODO 可能有问题 fileOrFolderIds这个没有用到
     @Override
     public Result loadAllFolder(LoadAllFolderDTO loadAllFolderDTO) {
-        return null;
+        Long parentId = loadAllFolderDTO.getFilePid();
+        String currentFileIds = loadAllFolderDTO.getCurrentFileIds(); // 当前如果选中的是目录的话，是不能移动到当前目录的
+        String[] fileOrFolderIds = currentFileIds.split(",");
+
+        List<FileFolder> folders = fileFolderMapper.selectList(new LambdaQueryWrapper<FileFolder>()
+                .eq(FileFolder::getIsDirectory, FileFolderTypeEnums.FOLDER.getType())
+                .eq(FileFolder::getParentId, parentId));
+
+        List<GetFolderInfo> getFolderInfos = new ArrayList<>();
+        for (FileFolder folder : folders) {
+            getFolderInfos.add(new GetFolderInfo(folder.getName(), folder.getFileFolderId()));
+        }
+
+        return Result.success(getFolderInfos);
     }
 
+    /**
+     * 这个操作是可以批量操作的和单个操作的（对于是否可以重复文件名，看具体的需求，后续进行修改）
+     * 这里其实目录和文件是一致的，需要对其分别加以判断相应的逻辑操作
+     * @param fileIds
+     * @param filePid
+     * @return
+     */
     @Override
     public Result changeFileFolder(String fileIds, Long filePid) {
-        return null;
+        // 这里要注意一下非法目录的移动（对于资源的操作都要注意一下非法请求，增强代码的健壮性）
+        if (filePid != Constants.ZERO) { // 这里是因为0是根目录 逻辑
+            FileFolder folder = fileFolderMapper.selectOne(new LambdaQueryWrapper<FileFolder>()
+                    .eq(FileFolder::getIsDirectory, FileFolderTypeEnums.FOLDER.getType())
+                    .eq(FileFolder::getFileFolderId, filePid));
+            if (folder == null) {
+                throw new BaseException(ResponseCodeEnum.CODE_600.getMsg());
+            }
+        }
+
+        // 如果要检查是否重命名就在这里
+
+        // 这里就是批量移动文件或者目录
+        Long userId = BaseContext.getUserId();
+        String[] fileId = fileIds.split(",");
+        fileFolderMapper.updateBatchFolderId(userId, fileId, filePid); //这里是批量处理文件的移动的
+
+        return Result.success();
     }
+
 }

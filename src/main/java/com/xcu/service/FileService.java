@@ -33,8 +33,6 @@ public interface FileService extends IService<FileInfo> {
 
     Result delFile(String fileIds);
 
-    void deleteLogicFile(List<Long> fileIdList);
-
     Result createDownloadUrl(Long fileId);
 
     void download(String code, HttpServletResponse response) throws IOException;

@@ -72,7 +72,7 @@ public class FileController {
         fileService.download(code, response);
     }
 
-    @PostMapping("/file/newFoloder")
+    @PostMapping("/newFoloder")
     public Result newFolder(NewFolderDTO newFolderDTO) {
         return fileService.newFolder(newFolderDTO);
     }
@@ -83,12 +83,12 @@ public class FileController {
 //        return fileService.getFolderInfo(path);
 //    }
 
-    @PostMapping("/file/loadAllFolder")
+    @PostMapping("/loadAllFolder")
     public Result loadAllFolder(LoadAllFolderDTO loadAllFolderDTO) {
         return fileService.loadAllFolder(loadAllFolderDTO);
     }
 
-    @PostMapping("/file/changeFileFolder")
+    @PostMapping("/changeFileFolder")
     public Result changeFileFolder(String fileIds, Long filePid) {
         return fileService.changeFileFolder(fileIds, filePid);
     }

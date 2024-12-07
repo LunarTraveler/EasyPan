@@ -18,5 +18,7 @@ public class RedisConstant {
     public static final String DOWNLOAD_FILE_KEY = "download:file:";
     public static final Long DOWNLOAD_FILE_TTL = 10L; // 10分钟
 
+    public static final String FILE_OR_FOLDER_KEY = "filefolder:";
+
 
 }

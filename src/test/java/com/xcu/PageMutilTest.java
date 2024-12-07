@@ -3,6 +3,7 @@ package com.xcu;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xcu.entity.vo.LoadDataListVO;
+import com.xcu.mapper.FileFolderMapper;
 import com.xcu.mapper.FileMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,11 +14,13 @@ public class PageMutilTest {
 
     @Autowired
     private FileMapper fileMapper;
+    @Autowired
+    private FileFolderMapper fileFolderMapper;
 
     @Test
     public void test() {
         IPage<LoadDataListVO> page = new Page<>(0, 15);
-        page = fileMapper.selectFileInfoPage(page, null, 0L, null);
+        page = fileFolderMapper.selectFileInfoPage(page, null, 0L, null);
 
         page.getRecords().forEach(System.out::println);
     }

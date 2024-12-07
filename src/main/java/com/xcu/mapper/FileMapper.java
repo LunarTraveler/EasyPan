@@ -19,10 +19,4 @@ public interface FileMapper extends BaseMapper<FileInfo> {
 
     Integer updateRefCount(String fileMd5);
 
-    // 使用 Page 对象作为返回类型
-    IPage<LoadDataListVO> selectFileInfoPage(IPage page,
-                                                  @Param("category") String category,
-                                                  @Param("filePid") Long filePid,
-                                                  @Param("fileName") String fileName);
-
 }

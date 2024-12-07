@@ -38,5 +38,64 @@
 
     </select>
 
+    <update id="updateBatchFolderId">
+        update
+            easypan.tb_file_folder tff
+        set
+            tff.parent_id = #{filePid}
+        where
+            tff.user_id = #{userId}
+        and tff.file_folder_id in
+        <foreach collection="fileId" item="item" separator="," open="(" close=")">
+            #{item}
+        </foreach>
+    </update>
+
+    <select id="selectFolderInfoList" resultType="com.xcu.entity.vo.GetFolderInfo">
+        select
+            tff.name as fileName,
+            tff.file_folder_id as fileId
+        from
+            easypan.tb_file_folder tff
+        where
+            tff.file_folder_id in
+            <foreach collection="folderIds" item="item" separator="," open="(" close=")">
+                #{item}
+            </foreach>
+        order by tff.file_folder_id
+    </select>
+
+    <update id="recursiveRecovery">
+        WITH RECURSIVE directory_tree AS (
+            -- 基础成员：选择根目录及其直接关联的文件
+            SELECT
+                tff.file_folder_id
+            FROM
+                easypan.tb_file_folder tff
+            WHERE
+                tff.file_folder_id in
+                <foreach collection="idArray" item="item" separator="," open="(" close=")">
+                    #{item}
+                </foreach>
+            UNION ALL
+            -- 递归成员：选择子目录及其直接关联的文件
+            SELECT
+                tff1.file_folder_id
+            FROM
+                easypan.tb_file_folder tff1
+            INNER JOIN
+                directory_tree dt
+            ON tff1.parent_id = dt.file_folder_id
+        )
+        UPDATE
+            easypan.tb_file_folder tff
+        SET
+            tff.status = 1,
+            tff.recovery_time = CURRENT_TIMESTAMP
+        WHERE
+            tff.file_folder_id IN (SELECT file_folder_id FROM directory_tree)
+
+    </update>
+
 
 </mapper>
