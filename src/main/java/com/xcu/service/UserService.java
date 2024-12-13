@@ -1,10 +1,7 @@
 package com.xcu.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.xcu.entity.dto.LoginDTO;
-import com.xcu.entity.dto.RegisterDTO;
-import com.xcu.entity.dto.ResetPwdDTO;
-import com.xcu.entity.dto.SendEmailCodeDTO;
+import com.xcu.entity.dto.*;
 import com.xcu.entity.pojo.User;
 import com.xcu.result.Result;
 import org.springframework.web.multipart.MultipartFile;
@@ -32,4 +29,10 @@ public interface UserService extends IService<User> {
     Result getUseSpace();
 
     Result logout();
+
+    Result loadUserList(LoadUserListDTO loadUserListDTO);
+
+    Result updateUserStatus(Long userId, Boolean status);
+
+    Result updateUserSpace(Long userId, Long changeSpace);
 }

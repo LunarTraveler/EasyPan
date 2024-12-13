@@ -20,7 +20,7 @@ public class PageMutilTest {
     @Test
     public void test() {
         IPage<LoadDataListVO> page = new Page<>(0, 15);
-        page = fileFolderMapper.selectFileInfoPage(page, null, 0L, null);
+        page = fileFolderMapper.selectFileInfoPage(page, null, 0L, null,null, null, 0);
 
         page.getRecords().forEach(System.out::println);
     }

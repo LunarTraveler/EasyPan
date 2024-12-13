@@ -20,5 +20,7 @@ public class RedisConstant {
 
     public static final String FILE_OR_FOLDER_KEY = "filefolder:";
 
+    public static final String SystemSetting_KEY = "systemsetting";
+
 
 }

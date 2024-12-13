@@ -1,30 +1,35 @@
 package com.xcu.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
+import com.alibaba.druid.util.StringUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xcu.context.BaseContext;
+import com.xcu.entity.dto.*;
 import com.xcu.entity.vo.GetUseSpaceVO;
+import com.xcu.entity.vo.LoadUserListVO;
 import com.xcu.exception.BaseException;
 import com.xcu.constants.Constants;
 import com.xcu.constants.RedisConstant;
-import com.xcu.entity.dto.LoginDTO;
-import com.xcu.entity.dto.RegisterDTO;
-import com.xcu.entity.dto.ResetPwdDTO;
-import com.xcu.entity.dto.SendEmailCodeDTO;
 import com.xcu.entity.pojo.User;
 import com.xcu.entity.vo.LoginVO;
 import com.xcu.mapper.FileMapper;
 import com.xcu.mapper.UserMapper;
+import com.xcu.result.PageResult;
 import com.xcu.result.Result;
 import com.xcu.service.UserService;
 import com.xcu.util.EmailSendUtil;
+import com.xcu.util.PageResultConversionUtil;
 import com.xcu.util.PasswordEncoder;
 import com.xcu.util.RedisIdIncrement;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +44,7 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -53,8 +59,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final UserMapper userMapper;
 
     private final RedisIdIncrement redisIdIncrement;
-
-    private final FileMapper fileMapper;
 
     @Override
     public Result sendEmailCode(SendEmailCodeDTO sendEmailCodeDTO, String captchaCode) {
@@ -157,7 +161,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         stringRedisTemplate.opsForValue().set(RedisConstant.FILE_USEDSPACE_KEY + user.getId(),
                 user.getUsedSpace().toString());
 
-        LoginVO loginVO = new LoginVO(user.getNickName(), user.getId().toString(), null, false);
+        LoginVO loginVO = new LoginVO(user.getNickName(), user.getId().toString(), null, true);
         return Result.success(loginVO);
     }
 
@@ -296,5 +300,65 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         userMapper.updateById(user);
         stringRedisTemplate.opsForValue().set(RedisConstant.FILE_USEDSPACE_KEY + userId, String.valueOf(usedSpace));
     }
+
+    @Override
+    public Result loadUserList(LoadUserListDTO loadUserListDTO) {
+        Integer pageNo = loadUserListDTO.getPageNo();
+        Integer pageSize = loadUserListDTO.getPageSize();
+
+        IPage<User> page = new Page<>(pageNo, pageSize);
+        page = userMapper.selectPage(page, new LambdaQueryWrapper<User>()
+                .likeLeft(!StringUtils.isEmpty(loadUserListDTO.getNickNameFuzzy()), User::getNickName, loadUserListDTO.getNickNameFuzzy())
+                .eq(loadUserListDTO.getStatus() != null, User::getStatus, loadUserListDTO.getStatus()));
+
+        PageResult<LoadUserListVO> pageResult = PageResultConversionUtil.conversion(page, LoadUserListVO.class);
+        List<LoadUserListVO> list = pageResult.getList();
+        for (User user : page.getRecords()) {
+            LoadUserListVO loadUserListVO = BeanUtil.copyProperties(user, LoadUserListVO.class);
+            loadUserListVO.setJoinTime(user.getCreateTime());
+            loadUserListVO.setUseSpace(user.getUsedSpace());
+            loadUserListVO.setUserId(user.getId());
+            // 这里的图片信息只能返回两级目录才可以正常展示（这里缺少了一个/离谱）
+            loadUserListVO.setQqAvatar(user.getQqAvatar().substring(7));
+            list.add(loadUserListVO);
+        }
+
+        return Result.success(pageResult);
+    }
+
+    /**
+     * 这里这个用户的相关信息先不删除（要遵循相关的政策规定）
+     * 如果要删除的话 可以之后设置一个定时任务统一把这个要删除的数据库记录删除
+     * @param userId
+     * @param status
+     * @return
+     */
+    @Override
+    public Result updateUserStatus(Long userId, Boolean status) {
+        int updateRow = userMapper.updateById(User.builder().id(userId).status(status).build());
+        if (updateRow == 0) {
+            throw new BaseException("更新失败");
+        }
+        return Result.success();
+    }
+
+    /**
+     * 如果这个空间是可以变换的，一般就是vip与普通用户之间的变化 这是要注意有大变小的空间不足的情况
+     * 可以使用消息通知过期 这是的空间不足 -> 之后就没法上传（只读模式） 清理最早的文件或是不经常使用的文件
+     * @param userId
+     * @param changeSpace
+     * @return
+     */
+    @Override
+    public Result updateUserSpace(Long userId, Long changeSpace) {
+        Long totalSpace = changeSpace * Constants.MB;
+        int updateRow = userMapper.updateById(User.builder().id(userId).totalSpace(totalSpace).build());
+        if (updateRow == 0) {
+            throw new BaseException("更新失败");
+        }
+        return Result.success();
+    }
+
+
 
 }

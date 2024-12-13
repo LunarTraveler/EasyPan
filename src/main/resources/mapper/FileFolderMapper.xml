@@ -25,14 +25,24 @@
         on
             tff.file_folder_id = f.file_id
         <where>
+            tff.status = 2
+            <if test="userId != null">
+                AND tff.user_id = #{userId}
+            </if>
             <if test="category != null">
                 AND f.file_category = #{category}
             </if>
             <if test="filePid != null">
                 AND tff.parent_id = #{filePid}
             </if>
+            <if test="fileId != null">
+                AND tff.file_folder_id = #{fileId}
+            </if>
             <if test="fileName != null">
                 AND tff.name LIKE CONCAT('%', #{fileName}, '%')
+            </if>
+            <if test="isDirectory != null">
+                AND tff.is_directory = #{isDirectory}
             </if>
         </where>
 
@@ -51,21 +61,7 @@
         </foreach>
     </update>
 
-    <select id="selectFolderInfoList" resultType="com.xcu.entity.vo.GetFolderInfo">
-        select
-            tff.name as fileName,
-            tff.file_folder_id as fileId
-        from
-            easypan.tb_file_folder tff
-        where
-            tff.file_folder_id in
-            <foreach collection="folderIds" item="item" separator="," open="(" close=")">
-                #{item}
-            </foreach>
-        order by tff.file_folder_id
-    </select>
-
-    <update id="recursiveRecovery">
+    <update id="recursiveFileInRecovery">
         WITH RECURSIVE directory_tree AS (
             -- 基础成员：选择根目录及其直接关联的文件
             SELECT
@@ -94,8 +90,147 @@
             tff.recovery_time = CURRENT_TIMESTAMP
         WHERE
             tff.file_folder_id IN (SELECT file_folder_id FROM directory_tree)
-
     </update>
 
+    <update id="recursiveFileOutRecovery">
+        with recursive directory_tree as (
+            -- 基础成员：选择原始条件查询出来所得列表
+            select
+                tff.file_folder_id
+            from
+                easypan.tb_file_folder tff
+            where
+                tff.file_folder_id in
+                <foreach collection="fileFolders" item="fileFolderId" separator="," open="(" close=")">
+                    #{fileFolderId}
+                </foreach>
+            -- 递归成员：有基础成员来得出的其他成员
+            union all
+            select
+                tff1.file_folder_id
+            from
+                easypan.tb_file_folder tff1
+            inner join
+                directory_tree dt
+            on tff1.parent_id = dt.file_folder_id
+        )
+        update
+            easypan.tb_file_folder tff
+        set
+            tff.status = 2,
+            tff.recovery_time = null
+        where
+            tff.file_folder_id in (select file_folder_id from directory_tree)
+    </update>
+
+    <update id="recursiveCompleteDelFile">
+        with recursive directory_tree as (
+        -- 基础成员：选择原始条件查询出来所得列表
+        select
+            tff.file_folder_id
+        from
+            easypan.tb_file_folder tff
+        where
+            tff.file_folder_id in
+            <foreach collection="fileFolders" item="fileFolderId" separator="," open="(" close=")">
+                #{fileFolderId}
+            </foreach>
+        -- 递归成员：有基础成员来得出的其他成员
+        union all
+        select
+            tff1.file_folder_id
+        from
+            easypan.tb_file_folder tff1
+        inner join
+            directory_tree dt
+        on tff1.parent_id = dt.file_folder_id
+        )
+        update
+            easypan.tb_file_folder tff
+        set
+            tff.status = 0,
+            tff.recovery_time = null
+        where
+            tff.file_folder_id in (select file_folder_id from directory_tree)
+    </update>
+
+    <select id="getFolderInfo" resultType="com.xcu.entity.vo.GetFolderInfo">
+        select
+            tff.name as fileName,
+            tff.file_folder_id as fileId
+        from
+            easypan.tb_file_folder tff
+        where
+            tff.file_folder_id in
+            <foreach collection="folderIds" item="folderId" separator="," open="(" close=")">
+                #{folderId}
+            </foreach>
+        order by tff.file_folder_id asc
+    </select>
+
+    <select id="getFirstMatchingNodeEncountered" resultType="java.lang.Long">
+        SELECT
+            tff.id
+        FROM
+            easypan.tb_file_folder tff
+        WHERE
+            tff.status = 1 AND tff.user_id = #{userId}
+          AND tff.parent_id NOT IN (
+            SELECT
+                tff.file_folder_id AS parent_id
+            FROM
+                easypan.tb_file_folder tff
+            WHERE
+                tff.STATUS = 1
+                AND tff.is_directory = 1
+                AND tff.user_id = #{userId}
+        )
+    </select>
+
+    <select id="loadRecycleList" resultType="com.xcu.entity.vo.LoadDataListVO">
+        select
+            tff.file_folder_id as fileId,
+            tff.parent_id as filePid,
+            f.file_size as fileSize,
+            tff.name as fileName,
+            f.file_cover as fileCover,
+            tff.update_time as lastUpdateTime,
+            tff.is_directory as folderType,
+            f.file_category as fileCategory,
+            f.file_type as fileType,
+            tff.status as status
+        from
+            easypan.tb_file_folder tff
+        left join
+            easypan.tb_file f
+        on
+            tff.file_folder_id = f.file_id
+        where
+            tff.id in
+            <foreach collection="ids" item="id" separator="," open="(" close=")">
+                #{id}
+            </foreach>
+    </select>
+
+    <insert id="insertBatchs">
+        insert into
+            easypan.tb_file_folder(id, user_id, file_folder_id, name, is_directory,
+                                   parent_id, status, recovery_time, create_time, update_time)
+        values
+            <foreach collection="fileFolders" item="fileFolder" separator=",">
+                (
+                #{fileFolder.id},
+                #{fileFolder.userId},
+                #{fileFolder.fileFolderId},
+                #{fileFolder.name},
+                #{fileFolder.isDirectory},
+                #{fileFolder.parentId},
+                #{fileFolder.status},
+                #{fileFolder.recoveryTime},
+                #{fileFolder.createTime},
+                #{fileFolder.updateTime}
+                )
+            </foreach>
+    </insert>
 
 </mapper>

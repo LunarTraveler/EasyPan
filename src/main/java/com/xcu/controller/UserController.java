@@ -9,6 +9,7 @@ import com.xcu.entity.dto.RegisterDTO;
 import com.xcu.entity.dto.ResetPwdDTO;
 import com.xcu.entity.dto.SendEmailCodeDTO;
 import com.xcu.result.Result;
+import com.xcu.service.FileService;
 import com.xcu.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,8 @@ import java.util.concurrent.TimeUnit;
 public class UserController {
 
     private final UserService userService;
+
+    private final FileService fileService;
 
     @RequestMapping("/checkCode")
     public void checkCode(HttpServletResponse response, HttpSession session, Integer type) throws IOException {

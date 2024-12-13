@@ -1,6 +1,7 @@
 package com.xcu.util;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
@@ -11,9 +12,11 @@ public class EmailSendUtil {
 
     private final JavaMailSender mailSender;
 
-    private String subject = "邮件标题";
+    @Value(value = "easypan.admin.emailTitle")
+    private String subject;
 
-    private String context1 = "EasyPan服务的邮箱验证码为";
+    @Value(value = "easypan.admin.emailContent")
+    private String context1;
 
     private String context2 = "，验证码的有效期为两分钟！";
 

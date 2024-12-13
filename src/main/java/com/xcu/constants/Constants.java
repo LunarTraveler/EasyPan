@@ -19,6 +19,8 @@ public class Constants {
 
     public static final String ID = "userId";
 
+    public static final Long MB = 1024 * 1024L; // 1MB
+
     public static final Long totalSpace = 1024 * 1024 * 1024L; // 1GB
 
     public static final Long vipTotalSpace = totalSpace * 20; // 20GB
@@ -28,6 +30,8 @@ public class Constants {
     public static final String M3U8_NAME = "index.m3u8";
 
     public static final String DOT = ".";
+
+    public static final String SLASH = "/";
 
     public static final Integer LENGTH_150 = 150;
 

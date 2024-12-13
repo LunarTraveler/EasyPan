@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.xcu.mapper.ShareMapper">
+
+    <select id="loadShareList" resultType="com.xcu.entity.vo.LoadShareListVO">
+        select
+            s.*,
+            ff.name as fileName,
+            ff.is_directory as folderType,
+            f.file_category as fileCategory,
+            f.file_type as fileType,
+            f.file_cover as fileCover
+        from
+            easypan.tb_share s
+        left join
+            easypan.tb_file_folder ff on s.file_id = ff.file_folder_id
+        left join
+            easypan.tb_file f on s.file_id = f.file_id
+        where
+            s.user_id = #{userId}
+    </select>
+
+    <select id="getShareLoginInfo" resultType="com.xcu.entity.vo.GetShareLoginInfoVO">
+        select
+            ts.file_id,
+            ts.user_id,
+            ts.expire_time,
+            ts.share_time,
+            tu.qq_avatar as avatar,
+            tu.nick_name,
+            tff.name as fileName
+        from
+            easypan.tb_share ts
+        left join easypan.tb_user tu on (ts.user_id = tu.user_id)
+        left join easypan.tb_file_folder tff on (ts.file_id = tff.file_folder_id)
+        where
+            ts.share_id = #{shareId}
+    </select>
+
+    <update id="updateShowIncrement">
+        update
+            easypan.tb_share ts
+        set
+            ts.show_count = ts.show_count + 1
+        where
+            ts.share_id = #{shareId}
+    </update>
+
+</mapper>

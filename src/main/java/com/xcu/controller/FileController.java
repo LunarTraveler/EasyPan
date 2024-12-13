@@ -77,12 +77,6 @@ public class FileController {
         return fileService.newFolder(newFolderDTO);
     }
 
-    // 前端写错路径了。。
-//    @PostMapping("/admin/getFolderInfo")
-//    public Result getFolderInfo(String path) {
-//        return fileService.getFolderInfo(path);
-//    }
-
     @PostMapping("/loadAllFolder")
     public Result loadAllFolder(LoadAllFolderDTO loadAllFolderDTO) {
         return fileService.loadAllFolder(loadAllFolderDTO);

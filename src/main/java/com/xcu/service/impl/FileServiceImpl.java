@@ -12,10 +12,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xcu.constants.Constants;
 import com.xcu.constants.RedisConstant;
 import com.xcu.context.BaseContext;
-import com.xcu.entity.dto.LoadAllFolderDTO;
-import com.xcu.entity.dto.LoadDataListDTO;
-import com.xcu.entity.dto.NewFolderDTO;
-import com.xcu.entity.dto.UploadFileDTO;
+import com.xcu.entity.dto.*;
 import com.xcu.entity.enums.*;
 import com.xcu.entity.pojo.FileFolder;
 import com.xcu.entity.pojo.FileInfo;
@@ -27,6 +24,7 @@ import com.xcu.mapper.*;
 import com.xcu.result.PageResult;
 import com.xcu.result.Result;
 import com.xcu.service.FileService;
+import com.xcu.util.PageResultConversionUtil;
 import com.xcu.util.ProcessUtils;
 import com.xcu.util.RedisIdIncrement;
 import com.xcu.util.ScaleFilter;
@@ -37,6 +35,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpServletResponse;
@@ -71,19 +70,20 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     public Result<PageResult<LoadDataListVO>> loadDataList(LoadDataListDTO loadDataListDTO) {
         String categoryParam = loadDataListDTO.getCategory(); // all
         Integer category = null; // 如果传来的是all 那么的话就直接是null了
-        if (!"all".equals(categoryParam)) {
+        if (!StringUtils.isEmpty(categoryParam) && !"all".equals(categoryParam)) {
             category = FileCategoryEnums.getByCode(categoryParam).getCategory();
         }
         Long filePid = loadDataListDTO.getFilePid(); // 默认是0根目录
         String fileName = loadDataListDTO.getFileName(); // 可能是null
         Integer pageNo = loadDataListDTO.getPageNo();
         Integer pageSize = loadDataListDTO.getPageSize();
+        Long userId = BaseContext.getUserId();
 
         // 多表连表的分页查询
         IPage<LoadDataListVO> page = new Page<>(
                 pageNo == null ? 1 : pageNo,
                 pageSize == null ? 15 : pageSize);
-        page = fileFolderMapper.selectFileInfoPage(page, category, filePid, fileName);
+        page = fileFolderMapper.selectFileInfoPage(page, category, filePid,null, fileName, userId, null);
 
         PageResult<LoadDataListVO> pageResult = new PageResult<>();
         pageResult.setPageNo((int)page.getCurrent());
@@ -466,7 +466,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         String[] idArray = fileIds.split(",");
 
         // 递归查询加更新
-        fileFolderMapper.recursiveRecovery(idArray);
+        fileFolderMapper.recursiveFileInRecovery(idArray);
 
         return Result.success();
     }
@@ -604,4 +604,108 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         return Result.success();
     }
 
+    @Override
+    public Result getFolderInfo(String path) {
+        Long userId = BaseContext.getUserId();
+        String[] folderIds = path.split("/");
+        List<GetFolderInfo> folderInfos = fileFolderMapper.getFolderInfo(folderIds, userId);
+
+        return Result.success(folderInfos);
+    }
+
+    /**
+     * 这里是很复杂的，相当于一颗树我们只要发现第一个是逻辑删除的节点，其他的节点都可以不展示
+     * 在二维表的形式中，可以使用这条记录的pid没有被删除就完美解决了这个树形问题了
+     * @param pageNo
+     * @param pageSize
+     * @return
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Result loadRecycleList(Integer pageNo, Integer pageSize) {
+        Long userId = BaseContext.getUserId();
+        // 直接查出来主键的id，免得二次查找了
+        List<Long> ids = fileFolderMapper.getFirstMatchingNodeEncountered(userId);
+        IPage<LoadDataListVO> page = new Page(pageNo, pageSize);
+        page = fileFolderMapper.loadRecycleList(page, ids);
+
+        PageResult<LoadDataListVO> pageResult = new PageResult<>();
+        pageResult.setPageNo((int)page.getCurrent());
+        pageResult.setPageSize((int)page.getSize());
+        pageResult.setTotalCount(page.getTotal());
+        pageResult.setPageTotal(page.getPages());
+        // 表示查出来的是文件列表 这里的封面图片路径要修改一下
+        page.getRecords().forEach(e -> {
+            e.setFileCover(e.getFileCover() != null ? e.getFileCover().substring(8) : null); // 只能返回两级目录
+        });
+        pageResult.setList(page.getRecords());
+
+        return Result.success(pageResult);
+    }
+
+    /**
+     * 回收文件或是目录（这里要向下进行递归查询所有状态的修改）
+     * @param fileFolders
+     * @return
+     */
+    @Override
+    public Result recoverFile(String[] fileFolders) {
+        // 递归的修改状态为正常使用的状态
+        fileFolderMapper.recursiveFileOutRecovery(fileFolders);
+        return Result.success();
+    }
+
+    /**
+     * 彻底的删除文件（这里要向下进行递归查询所有状态的修改） 如果是文件也要删除的话开启一个定时任务来做的
+     * @param fileFolders
+     * @return
+     */
+    @Override
+    public Result completeDelFile(String[] fileFolders) {
+        fileFolderMapper.recursiveCompleteDelFile(fileFolders);
+        return Result.success();
+    }
+
+    /**
+     * 查询出所有的 *文件*
+     * @param loadFileListDTO
+     * @return
+     */
+    @Override
+    public Result loadFileList(LoadFileListDTO loadFileListDTO) {
+        IPage<LoadDataListVO> page = new Page<>(loadFileListDTO.getPageNo(), loadFileListDTO.getPageSize());
+        page = fileFolderMapper.selectFileInfoPage(page, null, null, null, null, null, 0);
+
+        PageResult<LoadDataListVO> pageResult = PageResultConversionUtil.conversion(page, LoadDataListVO.class);
+        // 表示查出来的是文件列表 这里的封面图片路径要修改一下
+        page.getRecords().forEach(e -> {
+            e.setFileCover(e.getFileCover() != null ? e.getFileCover().substring(8) : null); // 只能返回两级目录(这里在nginx中是有映射的)
+        });
+        pageResult.setList(page.getRecords());
+
+        return Result.success(pageResult);
+    }
+
+    /**
+     * 这里设计的不好，管理员应该能够直接下载而不需要code验证码
+     * @param response
+     * @param fileId
+     * @throws IOException
+     */
+    @Override
+    public void adminDownload(HttpServletResponse response, Long fileId) throws IOException {
+        FileInfo fileInfo = fileMapper.selectOne(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getFileId, fileId));
+        Path path = Paths.get(fileInfo.getFilePath());
+
+        // 设置响应头(类型也是要设置的全面一点)
+        String fileType = Files.probeContentType(path);
+        if (fileType == null) {
+            fileType = "application/octet-stream";
+        }
+        response.setContentType(fileType);
+        response.setHeader("Content-Disposition", "attachment; filename=\"" + path.getFileName().toString() + "\"");
+        response.setContentLengthLong(fileInfo.getFileSize());
+        conversionOutput(path, response);
+    }
 }

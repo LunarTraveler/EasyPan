@@ -2,6 +2,7 @@ package com.xcu.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xcu.entity.pojo.FileFolder;
 import com.xcu.entity.vo.GetFolderInfo;
 import com.xcu.entity.vo.LoadDataListVO;
@@ -17,11 +18,24 @@ public interface FileFolderMapper extends BaseMapper<FileFolder> {
     IPage<LoadDataListVO> selectFileInfoPage(IPage page,
                                              @Param("category") Integer category,
                                              @Param("filePid") Long filePid,
-                                             @Param("fileName") String fileName);
-
-    List<GetFolderInfo> selectFolderInfoList(String[] folderIds);
+                                             @Param("fileId") Long fileId,
+                                             @Param("fileName") String fileName,
+                                             @Param("userId") Long userId,
+                                             @Param("isDirectory") Integer isDirectory);
 
     void updateBatchFolderId(Long userId, String[] fileId, Long filePid);
 
-    void recursiveRecovery(String[] idArray);
+    List<GetFolderInfo> getFolderInfo(String[] folderIds, Long userId);
+
+    List<Long> getFirstMatchingNodeEncountered(Long userId);
+
+    IPage<LoadDataListVO> loadRecycleList(IPage page, List<Long> ids);
+
+    void recursiveFileInRecovery(String[] idArray);
+
+    void recursiveFileOutRecovery(String[] fileFolders);
+
+    void recursiveCompleteDelFile(String[] fileFolders);
+
+    void insertBatchs(List<FileFolder> fileFolders);
 }

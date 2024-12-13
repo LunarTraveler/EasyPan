@@ -8,6 +8,7 @@ import lombok.Data;
 public class GetUseSpaceVO {
 
     private Long useSpace;
+
     private Long totalSpace;
 
 }

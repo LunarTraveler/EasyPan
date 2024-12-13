@@ -1,10 +1,7 @@
 package com.xcu.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.xcu.entity.dto.LoadAllFolderDTO;
-import com.xcu.entity.dto.LoadDataListDTO;
-import com.xcu.entity.dto.NewFolderDTO;
-import com.xcu.entity.dto.UploadFileDTO;
+import com.xcu.entity.dto.*;
 import com.xcu.entity.pojo.FileInfo;
 import com.xcu.entity.vo.LoadDataListVO;
 import com.xcu.result.PageResult;
@@ -42,4 +39,16 @@ public interface FileService extends IService<FileInfo> {
     Result loadAllFolder(LoadAllFolderDTO loadAllFolderDTO);
 
     Result changeFileFolder(String fileIds, Long filePid);
+
+    Result getFolderInfo(String path);
+
+    Result loadRecycleList(Integer pageNo, Integer pageSize);
+
+    Result recoverFile(String[] fileFolders);
+
+    Result completeDelFile(String[] fileFolders);
+
+    Result loadFileList(LoadFileListDTO loadFileListDTO);
+
+    void adminDownload(HttpServletResponse response, Long fileId) throws IOException;
 }

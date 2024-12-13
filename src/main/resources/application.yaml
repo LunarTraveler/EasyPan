@@ -35,6 +35,8 @@ mybatis-plus:
   global-config:
     db-config:
       id-type: auto # 确保为自动生成
+  configuration:
+    map-underscore-to-camel-case: true # 开启驼峰命名法自动转换下划线命名
 
 logging:
   level:
@@ -42,7 +44,9 @@ logging:
 
 easypan:
   admin:
-    emails: lunartravel@qq.com
+    emails: lunartravel@qq.com #管理员邮箱如果具有多个的话以逗号来分割
+    emailTitle: 邮件标题
+    emailContent: EasyPan服务的邮箱验证码为
   alioss:
     access-key-id: LTAI5tKU6g7PK6oyHWp1HaG2
     access-key-secret: 5p45kC5e2XPRFBXIwVLmuAkDj2IzZx
