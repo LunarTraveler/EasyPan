@@ -19,8 +19,9 @@ public class RedisConstant {
     public static final Long DOWNLOAD_FILE_TTL = 10L; // 10分钟
 
     public static final String FILE_OR_FOLDER_KEY = "filefolder:";
-
     public static final String SystemSetting_KEY = "systemsetting";
+    public static final String RATE_LIMIT_KEY = "ratelimit:";
+    public static final String GLOBAL_RATE_LIMITER = "ratelimit:global";
 
 
 }

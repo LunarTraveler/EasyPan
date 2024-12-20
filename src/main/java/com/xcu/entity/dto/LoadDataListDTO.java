@@ -9,7 +9,7 @@ public class LoadDataListDTO {
 
     private Long filePid;
 
-    private String fileName;
+    private String fileNameFuzzy;
 
     private Integer pageNo;
 

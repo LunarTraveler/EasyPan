@@ -127,6 +127,13 @@
             <version>3.10.2</version>
         </dependency>
 
+        <!--实现令牌桶算法-->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>19.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>

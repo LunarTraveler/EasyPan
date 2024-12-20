@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.google.common.util.concurrent.RateLimiter;
 import com.xcu.constants.Constants;
 import com.xcu.constants.RedisConstant;
 import com.xcu.context.BaseContext;
@@ -30,18 +31,24 @@ import com.xcu.util.RedisIdIncrement;
 import com.xcu.util.ScaleFilter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RateIntervalUnit;
+import org.redisson.api.RateType;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.boot.autoconfigure.cache.CacheProperties;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -66,6 +73,10 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
 
     private final StringRedisTemplate stringRedisTemplate;
 
+    private final RedissonClient redissonClient;
+
+    private final RRateLimiter globalRateLimiter;
+
     @Override
     public Result<PageResult<LoadDataListVO>> loadDataList(LoadDataListDTO loadDataListDTO) {
         String categoryParam = loadDataListDTO.getCategory(); // all
@@ -74,7 +85,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             category = FileCategoryEnums.getByCode(categoryParam).getCategory();
         }
         Long filePid = loadDataListDTO.getFilePid(); // 默认是0根目录
-        String fileName = loadDataListDTO.getFileName(); // 可能是null
+        String fileName = loadDataListDTO.getFileNameFuzzy(); // 可能是null
         Integer pageNo = loadDataListDTO.getPageNo();
         Integer pageSize = loadDataListDTO.getPageSize();
         Long userId = BaseContext.getUserId();
@@ -282,7 +293,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         String coverPath = null;
         if (FileTypeEnums.VIDEO == fileTypeEnum) {
             // 对视频文件切割
-            cutFileForVideo(fileId, fullPathName);
+            cutFile4Video(fileId, fullPathName);
 
             // 抽取一帧作为视频的封面
             coverPath = Constants.FILE_ROOT_DIR + Constants.AVATAR_DIR + UUID.fastUUID() + Constants.AVATAR_SUFFIX;
@@ -305,7 +316,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
     }
 
-    public void cutFileForVideo(long fileId, String videoFilePath) {
+    public void cutFile4Video(long fileId, String videoFilePath) {
         //创建同名切片目录
         File tsFolder = new File(videoFilePath.substring(0, videoFilePath.lastIndexOf(".")));
         if (!tsFolder.exists()) {
@@ -490,12 +501,14 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     }
 
     /**
-     * 对于大文件进行分块下载(后续把分片的思路完成)
+     * 对于大文件进行分块下载(后续把分片的思路完成，这里其实没有必要了)
+     * 分片下载的话就是可以利用http range协议 或是多线程分片读取后在按顺序依次写入输出流中
      * @param code
      * @param response
      */
     @Override
     public void download(String code, HttpServletResponse response) throws IOException {
+        // 权限的认证并可以获取到相应的携带内容
         String fileId = stringRedisTemplate.opsForValue().get(RedisConstant.DOWNLOAD_FILE_KEY + code);
         if (StringUtils.isEmpty(fileId)) {
             throw new BaseException("提取码已过期，请重试");
@@ -515,6 +528,66 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         response.setContentLengthLong(fileInfo.getFileSize());
         conversionOutput(path, response);
     }
+
+    /**
+     * 这里是局部方法可以直接调用的限流下载方法（vip用户不用设置）
+     * @param response
+     * @param path
+     * @throws IOException
+     */
+    public void downloadWithLimit(HttpServletResponse response, Path path, Long fileSize, Long userId) throws IOException {
+        // 设置响应头(类型也是要设置的全面一点)
+        String fileType = Files.probeContentType(path);
+        if (fileType == null) {
+            fileType = "application/octet-stream";
+        }
+        response.setContentType(fileType);
+        response.setHeader("Content-Disposition", "attachment; filename=\"" + path.getFileName().toString() + "\"");
+        response.setContentLengthLong(fileSize);
+
+        // 获取 Redisson 的 RRateLimiter 实例
+        String rateLimiterKey = RedisConstant.RATE_LIMIT_KEY + userId;
+        RRateLimiter rateLimiter = redissonClient.getRateLimiter(rateLimiterKey);
+
+        // 配置令牌桶的速率和容量（只在首次设置时生效）
+        rateLimiter.trySetRate(
+                RateType.PER_CLIENT,        // 对于每一个用户设置一个令牌桶
+                Constants.LIMIT_SPEED,      // 每秒生成的令牌数
+                Constants.LIMIT_SPEED * 2,  // 桶的容量
+                RateIntervalUnit.SECONDS
+        );
+
+        // 下载文件流传输
+        try (InputStream inputStream = Files.newInputStream(path);
+             OutputStream outputStream = response.getOutputStream()) {
+
+            byte[] buffer = new byte[1024]; // 缓冲区设置为1kb
+            int bytesRead;
+
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                // 全局级别的动态令牌限制
+                while (!globalRateLimiter.tryAcquire(bytesRead)) {
+                    Thread.sleep(20); // 等待生成足够令牌
+                }
+
+                // 用户级别的动态令牌检查
+                while (!rateLimiter.tryAcquire(bytesRead)) {
+                    Thread.sleep(10); // 等待生成足够令牌
+                }
+                outputStream.write(buffer, 0, bytesRead);
+            }
+
+        } catch (IOException e) {
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            log.error("文件下载错误，用户ID: {}, 文件路径: {}, 错误信息: {}", userId, path, e.getMessage());
+            throw new RuntimeException("文件下载过程中发生错误，请稍后重试！");
+        } catch (InterruptedException e) {
+            log.error("线程中断错误，用户ID: {}, 文件路径: {}", userId, path);
+            Thread.currentThread().interrupt(); // 恢复中断状态
+            throw new RuntimeException("文件下载中断，请稍后重试！");
+        }
+    }
+
 
     @Override
     public Result newFolder(NewFolderDTO newFolderDTO) {
